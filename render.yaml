@@ -1,0 +1,12 @@
+# Render Blueprint — deploy tự động khi push lên GitHub.
+# Có thể bỏ file này và cấu hình tay trong dashboard Render (xem README).
+services:
+  - type: web
+    name: anime-finder
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"

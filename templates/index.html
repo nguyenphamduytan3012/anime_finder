@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎬 アニメ・ファインダー</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&family=M+PLUS+1p:wght@400;700;800&family=Hina+Mincho&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body class="theme-neutral">
+  <div class="vignette"></div>
+
+  <header class="site-header">
+    <h1 class="logo">🎬 アニメ・ファインダー</h1>
+    <p class="tagline">好きなジャンルを選ぼう。アニメを見終わると、あなたの「好み」を記録します。</p>
+  </header>
+
+  <main>
+    <!-- ジャンル検索 -->
+    <section class="search-bar">
+      <input id="genreSearch" type="text" placeholder="ジャンルを入力（例：アクション、恋愛、ホラー）…" autocomplete="off" />
+      <div id="genreChips" class="chips"></div>
+    </section>
+
+    <div class="layout">
+      <!-- 左：アニメ一覧 -->
+      <section class="content">
+        <h2 id="resultTitle" class="section-title">ジャンルから探す</h2>
+
+        <!-- 絞り込み（フィルター） -->
+        <div id="filterBar" class="filter-bar hidden">
+          <label>並び替え
+            <select id="fSort">
+              <option value="score">スコア順</option>
+              <option value="popularity">人気順</option>
+              <option value="members">メンバー数順</option>
+              <option value="favorites">お気に入り順</option>
+              <option value="newest">新着順</option>
+              <option value="title">タイトル順</option>
+            </select>
+          </label>
+          <label>種類
+            <select id="fType">
+              <option value="">すべて</option>
+              <option value="TV">TV</option>
+              <option value="Movie">映画</option>
+              <option value="OVA">OVA</option>
+              <option value="ONA">ONA</option>
+              <option value="Special">スペシャル</option>
+              <option value="Music">音楽</option>
+            </select>
+          </label>
+          <label>ステータス
+            <select id="fStatus">
+              <option value="">すべて</option>
+              <option value="finished">完結</option>
+              <option value="airing">放送中</option>
+              <option value="upcoming">放送予定</option>
+            </select>
+          </label>
+          <label>年
+            <select id="fYear"><option value="">すべて</option></select>
+          </label>
+        </div>
+
+        <div id="animeGrid" class="grid">
+          <p class="hint">👆 上のジャンルを選んでください。</p>
+        </div>
+        <div id="pagination" class="pagination"></div>
+      </section>
+
+      <!-- 右：好みメモリ -->
+      <aside class="memory-panel">
+        <h2 class="section-title">🧠 あなたの好み</h2>
+        <div id="topGenres" class="top-genres"><p class="hint">まだデータがありません。アニメを見終わると記録が始まります。</p></div>
+        <button id="resetMemory" class="btn-ghost">メモリをリセット</button>
+
+        <h2 class="section-title">⭐ おすすめ</h2>
+        <div id="recoList" class="reco-list"><p class="hint">アニメを数本見終わると、おすすめが表示されます。</p></div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- 詳細モーダル -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <button id="modalClose" class="modal-close">✕</button>
+      <div id="modalContent"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
