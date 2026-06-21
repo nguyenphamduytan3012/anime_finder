@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual env
+anime-rec-env/
+venv/
+.venv/
+env/
+
+# Runtime state (per-user memory — reset on mỗi deploy)
+user_memory.json
+
+# Logs / OS
+*.log
+screenshot/server.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code local config (cá nhân)
+.claude/settings.local.json
