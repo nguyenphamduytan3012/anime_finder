@@ -12,6 +12,8 @@
 <body class="theme-neutral">
   <div class="vignette"></div>
 
+  <div id="authBar" class="auth-bar"></div>
+
   <header class="site-header">
     <h1 class="logo">🎬 アニメ・ファインダー</h1>
     <p class="tagline">好きなジャンルを選ぼう。アニメを見終わると、あなたの「好み」を記録します。</p>
@@ -88,6 +90,24 @@
     <div class="modal-box">
       <button id="modalClose" class="modal-close">✕</button>
       <div id="modalContent"></div>
+    </div>
+  </div>
+
+  <!-- 認証モーダル（ログイン / 新規登録） -->
+  <div id="authModal" class="modal hidden">
+    <div class="modal-box auth-box">
+      <button id="authClose" class="modal-close">✕</button>
+      <h2 id="authTitle" class="auth-title">ログイン</h2>
+      <form id="authForm" autocomplete="on">
+        <input id="authUser" class="auth-input" placeholder="ユーザー名" autocomplete="username" />
+        <input id="authPass" class="auth-input" type="password" placeholder="パスワード" autocomplete="current-password" />
+        <p id="authError" class="auth-error"></p>
+        <button type="submit" class="btn-primary" id="authSubmit">ログイン</button>
+      </form>
+      <p class="auth-switch">
+        <span id="authSwitchText">アカウントをお持ちでないですか？</span>
+        <a id="authSwitch" href="#">新規登録</a>
+      </p>
     </div>
   </div>
 

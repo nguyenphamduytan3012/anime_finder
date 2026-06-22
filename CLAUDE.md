@@ -60,26 +60,30 @@ Favorite_anime/
 ├── data/                  # CSV gốc (giữ nguyên)
 ├── eda.ipynb              # phân tích, chart cho README
 ├── src/
-│   ├── data_loader.py     # load + clean (parse genres bằng '|', dedup mal_id)
-│   ├── recommender.py     # content-based: TF-IDF(genres+themes+type) + cosine similarity
-│   └── memory.py          # cơ chế ghi nhớ genre yêu thích (mục 1) — đọc/ghi user_memory.json
-├── templates/index.html   # giao diện chính
-├── static/css/style.css   # 4 theme (CSS variables + class theme-*)
-├── static/js/app.js       # gọi API, đổi theme theo genre, render anime
-├── app.py                 # Flask: serve UI + REST API (/api/genres, /api/anime, /api/similar, /api/finish, /api/memory, /api/recommend)
+│   ├── data_loader.py     # load + clean (parse genres bằng '|', dedup mal_id, bỏ Hentai)
+│   ├── recommender.py     # content-based: TF-IDF(genres+themes+type) + cosine similarity; search() có filter/sort/paginate
+│   ├── database.py        # khởi tạo SQLAlchemy (db) + normalize_db_url (postgres:// -> postgresql+psycopg2://)
+│   ├── models.py          # bảng SQLAlchemy: User, FinishedAnime
+│   └── memory.py          # ghi nhớ genre yêu thích THEO USER trong DB (genre_score tính on-the-fly)
+├── templates/index.html   # giao diện chính + modal auth
+├── static/css/style.css   # 4 theme (CSS variables + class theme-*) + auth UI
+├── static/js/app.js       # gọi API, đổi theme, render anime, auth (login/register/logout)
+├── app.py                 # Flask: UI + REST API + Flask-Login
+├── .env / .env.example    # DATABASE_URL, SECRET_KEY (.env KHÔNG commit)
+├── render.yaml / Procfile # deploy (gunicorn)
 └── requirements.txt
 ```
 
+**REST API:** `/api/genres`, `/api/anime` (filter+paginate), `/api/anime/<id>` (detail+similar), `/api/register`, `/api/login`, `/api/logout`, `/api/me`, `/api/finish`, `/api/memory`, `/api/memory/reset`, `/api/recommend`. Các route memory/finish/recommend yêu cầu **đăng nhập** (`@login_required` → trả 401 JSON `{auth_required:true}` nếu chưa login).
+
 **Quyết định đã chốt với chủ dự án:**
-- **Xác định "đã xem hết": theo số tập.** User nhập số tập đã xem cho một anime; nếu `số_tập_đã_xem >= episodes` (và `episodes` hợp lệ, không NaN) → coi là *finished* → trích `genres` của bộ đó cộng vào memory. Lưu ý nhiều bộ có `episodes = NaN` (839 dòng) hoặc đang phát sóng → cần xử lý riêng (cho phép user tự xác nhận hoặc bỏ qua).
-- **Bộ nhớ lưu lâu dài bằng file JSON** (không dùng session tạm). `memory.py` đọc/ghi file vd `user_memory.json` với cấu trúc kiểu:
-  ```json
-  {
-    "finished": [{"mal_id": 1, "title": "Cowboy Bebop", "genres": ["Action","Sci-Fi"]}],
-    "genre_score": {"Action": 2, "Sci-Fi": 1}
-  }
-  ```
-  Mỗi lần đánh dấu finished → cập nhật `finished[]` + cộng dồn `genre_score{}` → ghi lại file. Khi gợi ý → đọc `genre_score`, lấy các genre điểm cao nhất để re-rank.
+- **Xác định "đã xem hết": theo số tập.** Nếu `số_tập_đã_xem >= episodes` (và `episodes` không NaN) → *finished* → cộng genres vào memory. Bộ `episodes = NaN`/đang phát sóng → coi như user tự xác nhận.
+- **Quản lý người dùng bằng PostgreSQL + auth thật** (đã nâng cấp từ JSON). Mật khẩu **băm** (Werkzeug), session bằng **Flask-Login**. Hai bảng:
+  - `users(id, username UNIQUE, password_hash, created_at)`
+  - `finished_anime(id, user_id FK, mal_id, title, finished_at, UNIQUE(user_id, mal_id))`
+  - **`genre_score` KHÔNG có bảng riêng** — tính on-the-fly từ `finished_anime` + genres trong dataset (single source of truth). Anime catalog ở CSV/pandas, user-state ở DB, nối bằng `mal_id`.
+- **DB local: Postgres qua Docker** (`docker run ... postgres:16`, container tên `anime-pg`, db `animedb`, user/pass `anime`). `DATABASE_URL` đọc từ `.env`. Khi deploy Render → tạo Postgres, set `DATABASE_URL` (app tự chuẩn hoá scheme `postgres://`).
+- File `user_memory.json` cũ **không còn dùng** (đã chuyển sang DB).
 
 ## 6. Môi trường & lệnh
 
@@ -88,14 +92,17 @@ Favorite_anime/
 - CSV đọc bằng `encoding="utf-8"`.
 
 ```bash
-# Môi trường ảo
-python -m venv anime-rec-env
-anime-rec-env\Scripts\activate        # Windows PowerShell
+pip install -r requirements.txt       # flask, pandas, sklearn, SQLAlchemy, Flask-Login, psycopg2, dotenv...
 
-pip install -r requirements.txt       # flask, pandas, numpy, scikit-learn
-# scikit-surprise chỉ cần nếu/khi có rating.csv cho collaborative filtering
+# DB local: Postgres qua Docker (cần Docker Desktop đang chạy)
+docker run -d --name anime-pg -e POSTGRES_USER=anime -e POSTGRES_PASSWORD=anime \
+  -e POSTGRES_DB=animedb -p 5432:5432 -v anime_pgdata:/var/lib/postgresql/data postgres:16
+# (đã chạy rồi thì: docker start anime-pg)
 
-python app.py                         # chạy app → http://127.0.0.1:5000
+# Tạo .env từ .env.example (DATABASE_URL, SECRET_KEY)
+python app.py                         # tự create_all() bảng → http://127.0.0.1:5000
+
+# Soi DB: docker exec -it anime-pg psql -U anime -d animedb -c "\dt"
 ```
 
 ## 7. Quy ước screenshot (BẮT BUỘC)

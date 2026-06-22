@@ -9,8 +9,13 @@ venv/
 .venv/
 env/
 
-# Runtime state (per-user memory — reset on mỗi deploy)
+# Secrets / env (KHÔNG commit)
+.env
+
+# Runtime state (bộ nhớ JSON cũ — nay đã chuyển sang DB)
 user_memory.json
+*.db
+*.sqlite3
 
 # Logs / OS
 *.log
