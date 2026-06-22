@@ -1,65 +1,51 @@
-"""Bộ nhớ thể loại yêu thích — lưu lâu dài bằng JSON.
+"""Bộ nhớ thể loại yêu thích — theo TỪNG user, lưu trong DB.
 
 Cơ chế (xem CLAUDE.md mục 1):
-- User đánh dấu 'đã xem hết' một anime (watched_episodes >= episodes).
-- Trích genres của anime đó -> cộng dồn vào genre_score.
-- Genre có điểm cao nhất = thể loại yêu thích -> dùng để gợi ý.
+- User đánh dấu 'đã xem hết' một anime -> thêm 1 dòng vào finished_anime.
+- genre_score = đếm tần suất genre trên TẤT CẢ bộ đã xem hết của user đó,
+  tính on-the-fly bằng cách tra genres của từng mal_id trong dataset.
+- Genre điểm cao nhất = thể loại yêu thích -> dùng để gợi ý.
+
+`genres_of` là một callable mal_id -> list[str] (do recommender cung cấp),
+giúp memory KHÔNG phụ thuộc trực tiếp vào pandas/dataset.
 """
-import json
-import os
-from threading import Lock
-
-MEMORY_PATH = os.path.join(os.path.dirname(__file__), "..", "user_memory.json")
-_lock = Lock()
+from .database import db
+from .models import FinishedAnime
 
 
-def _empty():
-    return {"finished": [], "genre_score": {}}
+def mark_finished(user_id, mal_id, title):
+    """Thêm anime vào danh sách đã xem hết của user. Trả True nếu mới thêm."""
+    exists = FinishedAnime.query.filter_by(user_id=user_id, mal_id=mal_id).first()
+    if exists:
+        return False
+    db.session.add(FinishedAnime(user_id=user_id, mal_id=int(mal_id), title=title))
+    db.session.commit()
+    return True
 
 
-def load(path=MEMORY_PATH):
-    if not os.path.exists(path):
-        return _empty()
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        data.setdefault("finished", [])
-        data.setdefault("genre_score", {})
-        return data
-    except (json.JSONDecodeError, OSError):
-        return _empty()
+def finished_list(user_id):
+    rows = (FinishedAnime.query
+            .filter_by(user_id=user_id)
+            .order_by(FinishedAnime.finished_at.desc())
+            .all())
+    return [{"mal_id": r.mal_id, "title": r.title} for r in rows]
 
 
-def save(data, path=MEMORY_PATH):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def genre_scores(user_id, genres_of):
+    """Đếm tần suất genre trên các bộ user đã xem hết. genres_of: mal_id -> list."""
+    scores = {}
+    for r in FinishedAnime.query.filter_by(user_id=user_id).all():
+        for g in genres_of(r.mal_id):
+            scores[g] = scores.get(g, 0) + 1
+    return scores
 
 
-def mark_finished(mal_id, title, genres, path=MEMORY_PATH):
-    """Đánh dấu một anime đã xem hết -> cộng genre vào bộ nhớ. Trả về memory mới."""
-    with _lock:
-        data = load(path)
-        if any(item["mal_id"] == mal_id for item in data["finished"]):
-            return data  # đã ghi nhớ rồi, không cộng trùng
-
-        data["finished"].append({
-            "mal_id": int(mal_id),
-            "title": title,
-            "genres": list(genres),
-        })
-        for g in genres:
-            data["genre_score"][g] = data["genre_score"].get(g, 0) + 1
-        save(data, path)
-        return data
-
-
-def top_genres(data, k=5):
-    """k thể loại yêu thích nhất (điểm cao nhất)."""
-    items = sorted(data["genre_score"].items(), key=lambda x: x[1], reverse=True)
+def top_genres(scores, k=5):
+    items = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [{"name": g, "score": s} for g, s in items[:k]]
 
 
-def reset(path=MEMORY_PATH):
-    with _lock:
-        save(_empty(), path)
-        return _empty()
+def reset(user_id):
+    """Xoá toàn bộ lịch sử đã xem hết của user."""
+    FinishedAnime.query.filter_by(user_id=user_id).delete()
+    db.session.commit()

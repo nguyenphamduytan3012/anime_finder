@@ -103,6 +103,13 @@ class AnimeRecommender:
             return None
         return self._to_records(self.df.iloc[[idx]])[0]
 
+    def genres_of(self, mal_id):
+        """Trả list genre của một anime theo mal_id (cho memory dùng)."""
+        idx = self.id_to_idx.get(int(mal_id))
+        if idx is None:
+            return []
+        return list(self.df.iloc[idx]["genre_list"])
+
     def similar(self, mal_id, n=12):
         """Anime tương tự theo nội dung (cosine similarity)."""
         idx = self.id_to_idx.get(int(mal_id))

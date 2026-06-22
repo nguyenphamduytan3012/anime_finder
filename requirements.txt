@@ -3,3 +3,8 @@ pandas==2.3.3
 numpy>=1.26
 scikit-learn==1.7.2
 gunicorn==23.0.0
+Flask-SQLAlchemy>=3.1
+SQLAlchemy>=2.0
+Flask-Login>=0.6
+psycopg2-binary>=2.9
+python-dotenv>=1.0

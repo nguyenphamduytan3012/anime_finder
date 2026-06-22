@@ -62,6 +62,80 @@ function cardHTML(a) {
 // ===== State =====
 const state = { genre: null, page: 1, sort: "score", type: "", status: "", year: "" };
 
+// ===== Auth =====
+let CURRENT_USER = null;
+let authMode = "login";
+
+async function loadMe() {
+  const me = await api("/api/me");
+  CURRENT_USER = me.username;
+  renderAuthBar();
+}
+
+function renderAuthBar() {
+  const bar = $("#authBar");
+  if (CURRENT_USER) {
+    bar.innerHTML = `<span class="auth-hello">こんにちは、<b>${escapeHtml(CURRENT_USER)}</b></span>
+      <button class="auth-btn" data-act="logout">ログアウト</button>`;
+  } else {
+    bar.innerHTML = `<button class="auth-btn" data-act="login">ログイン</button>
+      <button class="auth-btn primary" data-act="register">新規登録</button>`;
+  }
+}
+
+function openAuth(mode) {
+  authMode = mode;
+  $("#authError").textContent = "";
+  $("#authUser").value = "";
+  $("#authPass").value = "";
+  $("#authTitle").textContent = mode === "login" ? "ログイン" : "新規登録";
+  $("#authSubmit").textContent = mode === "login" ? "ログイン" : "登録する";
+  $("#authSwitchText").textContent =
+    mode === "login" ? "アカウントをお持ちでないですか？" : "既にアカウントをお持ちですか？";
+  $("#authSwitch").textContent = mode === "login" ? "新規登録" : "ログイン";
+  $("#authModal").classList.remove("hidden");
+  $("#authUser").focus();
+}
+
+async function submitAuth(e) {
+  e.preventDefault();
+  const username = $("#authUser").value.trim();
+  const password = $("#authPass").value;
+  const res = await api("/api/" + authMode, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (res.error) {
+    $("#authError").textContent = res.error;
+    return;
+  }
+  CURRENT_USER = res.username;
+  $("#authModal").classList.add("hidden");
+  renderAuthBar();
+  toast(authMode === "login" ? "ログインしました。" : "アカウントを作成しました。");
+  refreshUserData();
+}
+
+async function logout() {
+  await api("/api/logout", { method: "POST" });
+  CURRENT_USER = null;
+  renderAuthBar();
+  renderLoginPrompt();
+  toast("ログアウトしました。");
+}
+
+async function refreshUserData() {
+  if (!CURRENT_USER) return renderLoginPrompt();
+  renderMemory(await api("/api/memory"));
+  loadRecommendations();
+}
+
+function renderLoginPrompt() {
+  $("#topGenres").innerHTML = `<p class="hint">ログインすると、見終わったアニメから「好み」を記録できます。</p>`;
+  $("#recoList").innerHTML = `<p class="hint">ログインすると、おすすめが表示されます。</p>`;
+}
+
 async function showGenre(genre) {
   state.genre = genre;
   state.page = 1;
@@ -153,6 +227,12 @@ async function finishAnime(malId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mal_id: malId, watched_episodes: watched }),
   });
+  if (res.auth_required) {
+    $("#modal").classList.add("hidden");
+    openAuth("login");
+    toast("記録するにはログインが必要です。");
+    return;
+  }
   toast(res.message || (res.finished ? "記録しました！" : "まだ完了していません。"));
   if (res.finished) {
     renderMemory(res.memory);
@@ -181,6 +261,7 @@ function renderMemory(mem) {
 async function loadRecommendations() {
   const data = await api("/api/recommend");
   const box = $("#recoList");
+  if (data.auth_required || !data.recommendations) return renderLoginPrompt();
   if (!data.recommendations.length) {
     box.innerHTML = `<p class="hint">アニメを数本見終わると、おすすめが表示されます。</p>`;
     return;
@@ -257,16 +338,36 @@ async function init() {
     if (e.target.id === "modal") $("#modal").classList.add("hidden");
   });
   $("#resetMemory").onclick = async () => {
+    if (!CURRENT_USER) return openAuth("login");
     renderMemory(await api("/api/memory/reset", { method: "POST" }));
     loadRecommendations();
     toast("メモリをリセットしました。");
   };
 
-  renderMemory(await api("/api/memory"));
-  loadRecommendations();
+  // ----- auth handlers -----
+  $("#authBar").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-act]");
+    if (!b) return;
+    if (b.dataset.act === "logout") logout();
+    else openAuth(b.dataset.act); // "login" hoặc "register"
+  });
+  $("#authClose").onclick = () => $("#authModal").classList.add("hidden");
+  $("#authModal").addEventListener("click", (e) => {
+    if (e.target.id === "authModal") $("#authModal").classList.add("hidden");
+  });
+  $("#authSwitch").addEventListener("click", (e) => {
+    e.preventDefault();
+    openAuth(authMode === "login" ? "register" : "login");
+  });
+  $("#authForm").addEventListener("submit", submitAuth);
+
+  await loadMe();
+  await refreshUserData();
 
   const m = location.hash.match(/genre=([^&]+)/);
   if (m) showGenre(decodeURIComponent(m[1]));
+  const a = location.hash.match(/auth=(login|register)/);
+  if (a && !CURRENT_USER) openAuth(a[1]);
 }
 
 init();

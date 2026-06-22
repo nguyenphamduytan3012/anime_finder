@@ -1,31 +1,111 @@
 """Anime Favorite Finder — Flask backend.
 
-Serve UI + REST API cho:
-- lọc anime theo genre
+Serve UI + REST API:
+- lọc anime theo genre (phân trang + filter)
 - gợi ý anime tương tự (content-based)
-- ghi nhớ thể loại yêu thích khi user xem hết một bộ
-- gợi ý anime dựa trên 'gu' đã ghi nhớ
+- AUTH: đăng ký / đăng nhập / đăng xuất (Flask-Login)
+- ghi nhớ thể loại yêu thích THEO TỪNG USER (DB) khi xem hết một bộ
+- gợi ý anime dựa trên 'gu' đã ghi nhớ của user đang đăng nhập
 """
+import os
+
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+from flask_login import (
+    LoginManager, login_user, logout_user, login_required, current_user,
+)
 
 from src.data_loader import load_anime, all_genres
 from src.recommender import AnimeRecommender
+from src.database import db, normalize_db_url
+from src.models import User
 from src import memory
 
-app = Flask(__name__)
+load_dotenv()
 
+app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+app.config["SQLALCHEMY_DATABASE_URI"] = normalize_db_url(
+    os.environ.get("DATABASE_URL", "postgresql+psycopg2://anime:anime@localhost:5432/animedb")
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
+
+
+@login_manager.unauthorized_handler
+def _unauthorized():
+    return jsonify({"error": "ログインが必要です。", "auth_required": True}), 401
+
+
+# ----- tải dataset + tạo bảng -----
 print("Loading dataset…")
 DF = load_anime()
 REC = AnimeRecommender(DF)
 GENRES = all_genres(DF)
+with app.app_context():
+    db.create_all()
 print(f"Ready: {len(DF)} anime, {len(GENRES)} genres.")
 
 
+# ===================== UI =====================
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
+# ===================== AUTH =====================
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    body = request.get_json(silent=True) or {}
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    if len(username) < 3 or len(password) < 4:
+        return jsonify({"error": "ユーザー名は3文字以上、パスワードは4文字以上にしてください。"}), 400
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "このユーザー名は既に使われています。"}), 409
+    user = User(username=username)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    login_user(user)
+    return jsonify({"username": user.username})
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    body = request.get_json(silent=True) or {}
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    user = User.query.filter_by(username=username).first()
+    if user is None or not user.check_password(password):
+        return jsonify({"error": "ユーザー名またはパスワードが違います。"}), 401
+    login_user(user)
+    return jsonify({"username": user.username})
+
+
+@app.route("/api/logout", methods=["POST"])
+@login_required
+def api_logout():
+    logout_user()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/me")
+def api_me():
+    if current_user.is_authenticated:
+        return jsonify({"username": current_user.username})
+    return jsonify({"username": None})
+
+
+# ===================== ANIME =====================
 @app.route("/api/genres")
 def api_genres():
     return jsonify(GENRES)
@@ -63,7 +143,9 @@ def api_anime_detail(mal_id):
     return jsonify(item)
 
 
+# ===================== MEMORY (per-user) =====================
 @app.route("/api/finish", methods=["POST"])
+@login_required
 def api_finish():
     """Đánh dấu đã xem hết. Body: {mal_id, watched_episodes}."""
     body = request.get_json(force=True, silent=True) or {}
@@ -85,47 +167,51 @@ def api_finish():
         except (TypeError, ValueError):
             return jsonify({"error": "watched_episodes が不正です"}), 400
 
-    data = memory.mark_finished(item["mal_id"], item["title"], item["genres"])
+    added = memory.mark_finished(current_user.id, item["mal_id"], item["title"])
+    msg = (f"「{item['title']}」と{len(item['genres'])}個のジャンルを記録しました。"
+           if added else f"「{item['title']}」は既に記録済みです。")
     return jsonify({
         "finished": True,
-        "message": f"「{item['title']}」と{len(item['genres'])}個のジャンルを記録しました。",
-        "memory": _memory_payload(data),
+        "message": msg,
+        "memory": _memory_payload(current_user.id),
     })
 
 
 @app.route("/api/memory")
+@login_required
 def api_memory():
-    return jsonify(_memory_payload(memory.load()))
+    return jsonify(_memory_payload(current_user.id))
 
 
 @app.route("/api/memory/reset", methods=["POST"])
+@login_required
 def api_memory_reset():
-    return jsonify(_memory_payload(memory.reset()))
+    memory.reset(current_user.id)
+    return jsonify(_memory_payload(current_user.id))
 
 
 @app.route("/api/recommend")
+@login_required
 def api_recommend():
-    data = memory.load()
-    finished_ids = [it["mal_id"] for it in data["finished"]]
-    recs = REC.recommend_by_genre_scores(
-        data["genre_score"], exclude_ids=finished_ids, n=18
-    )
+    scores = memory.genre_scores(current_user.id, REC.genres_of)
+    finished_ids = [it["mal_id"] for it in memory.finished_list(current_user.id)]
+    recs = REC.recommend_by_genre_scores(scores, exclude_ids=finished_ids, n=18)
     return jsonify({
-        "top_genres": memory.top_genres(data),
+        "top_genres": memory.top_genres(scores),
         "recommendations": recs,
     })
 
 
-def _memory_payload(data):
+def _memory_payload(user_id):
+    scores = memory.genre_scores(user_id, REC.genres_of)
     return {
-        "finished": data["finished"],
-        "genre_score": data["genre_score"],
-        "top_genres": memory.top_genres(data),
+        "finished": memory.finished_list(user_id),
+        "genre_score": scores,
+        "top_genres": memory.top_genres(scores),
     }
 
 
 if __name__ == "__main__":
-    import os
     # Chạy local: python app.py. Trên Render dùng gunicorn (xem Procfile/render.yaml).
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     port = int(os.environ.get("PORT", 5000))

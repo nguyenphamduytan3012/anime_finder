@@ -15,9 +15,12 @@ toward the genres that overlap most across everything you've finished. The UI is
   and sort (score / popularity / members / favorites / newest / title).
 - **Content-based similarity** — TF-IDF over genres + themes + type, cosine similarity to find
   similar anime for any title.
+- **User accounts** — register / login with hashed passwords (Werkzeug) and server-side
+  sessions (Flask-Login). Each user has their **own** taste memory.
 - **Taste memory (the core idea)** — marking a series as *finished* (watched episodes ≥ total)
-  adds its genres to a persistent score. Genres that recur across finished shows rise to the top
-  and drive a personalized "For You" ranking.
+  records it for that user in PostgreSQL. Genres that recur across finished shows rise to the top
+  and drive a personalized "For You" ranking. (`genre_score` is computed on the fly from the
+  finished list — single source of truth, no redundant table.)
 - **Dynamic theming** — 4 themes that switch by genre group: Neutral (home), Action/Fantasy
   (cyberpunk neon), Romance (soft sakura), Horror (dark mystic + vignette). See [DESIGN.md](DESIGN.md).
 
@@ -32,6 +35,7 @@ Filtering + pagination: ![filter](screenshot/filter-pagination-action.png)
 ## 🛠 Tech Stack
 
 - **Backend:** Python, Flask, pandas, scikit-learn (TF-IDF + cosine similarity)
+- **Auth & DB:** Flask-Login, Flask-SQLAlchemy, PostgreSQL (psycopg2), Werkzeug password hashing
 - **Frontend:** vanilla HTML/CSS/JS (CSS variables for theming, Google Fonts: M PLUS 1p,
   M PLUS Rounded 1c, Hina Mincho)
 - **Serving:** gunicorn (production), deployed on Render
@@ -41,38 +45,47 @@ Filtering + pagination: ![filter](screenshot/filter-pagination-action.png)
 ```
 src/data_loader.py   # load + clean CSV (parse genres by '|', dedup mal_id, drop Hentai)
 src/recommender.py   # TF-IDF + cosine similarity; genre search w/ filter, sort, pagination
-src/memory.py        # persistent taste memory (user_memory.json): finished[] + genre_score{}
-app.py               # Flask: serves UI + REST API
-templates/ static/   # frontend (4 dynamic themes)
+src/database.py      # SQLAlchemy init + DATABASE_URL normalization
+src/models.py        # User, FinishedAnime (1 user -> many finished)
+src/memory.py        # per-user taste memory in DB; genre_score computed on the fly
+app.py               # Flask: serves UI + REST API + Flask-Login auth
+templates/ static/   # frontend (4 dynamic themes + auth UI)
 ```
 
 REST API: `/api/genres`, `/api/anime?genre=&page=&sort=&type=&status=&year=`,
-`/api/anime/<id>` (detail + similar), `/api/finish` (POST), `/api/memory`, `/api/recommend`.
+`/api/anime/<id>` (detail + similar), `/api/register`, `/api/login`, `/api/logout`, `/api/me`,
+`/api/finish`, `/api/memory`, `/api/recommend` (memory/finish/recommend require auth).
 
 ## 🚀 Run locally
 
 ```bash
-python -m venv anime-rec-env
-anime-rec-env\Scripts\activate      # Windows PowerShell
 pip install -r requirements.txt
-python app.py                       # http://127.0.0.1:5000
+
+# PostgreSQL via Docker (needs Docker Desktop running)
+docker run -d --name anime-pg -e POSTGRES_USER=anime -e POSTGRES_PASSWORD=anime \
+  -e POSTGRES_DB=animedb -p 5432:5432 -v anime_pgdata:/var/lib/postgresql/data postgres:16
+
+cp .env.example .env                # set DATABASE_URL + SECRET_KEY
+python app.py                       # auto-creates tables → http://127.0.0.1:5000
 ```
 
 ## ☁️ Deploy (Render)
 
 1. Push this repo to GitHub.
-2. On [render.com](https://render.com) → **New** → **Web Service** → connect the repo.
-3. Render reads [render.yaml](render.yaml) automatically. If configuring manually:
-   - **Build command:** `pip install -r requirements.txt`
-   - **Start command:** `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
-   - **Instance type:** Free
-4. Deploy → you get a public `https://<name>.onrender.com` URL.
+2. On [render.com](https://render.com) → **New** → **Blueprint** → connect the repo.
+   Render reads [render.yaml](render.yaml), which provisions a free **PostgreSQL** database,
+   wires `DATABASE_URL`, and generates `SECRET_KEY` automatically.
+3. (Manual alternative) create a Web Service + a PostgreSQL instance, then set:
+   - **Build:** `pip install -r requirements.txt`
+   - **Start:** `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
+   - **Env:** `DATABASE_URL` (from the DB), `SECRET_KEY` (a long random string)
+4. Deploy → public `https://<name>.onrender.com` URL.
 
-> Note: on the free tier the service sleeps after inactivity (first request takes ~30–60s to
-> wake), and `user_memory.json` resets on each redeploy (ephemeral disk).
+> Note: on the free tier the web service sleeps after inactivity (first request ~30–60s to wake).
+> User accounts & taste memory persist in PostgreSQL.
 
 ## 💡 Future improvements
 
-- Per-user sessions (currently the taste memory is shared/global).
 - Collaborative filtering once a `rating.csv` is available (hybrid with the content model).
-- Persistent storage (DB) for memory; theme/demographic filters.
+- Swap TF-IDF for neural embeddings + a vector index (FAISS) for semantic similarity.
+- Extra filters (theme/demographic); "currently watching" progress tracking.
