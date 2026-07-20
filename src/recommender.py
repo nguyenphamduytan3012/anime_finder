@@ -140,9 +140,77 @@ class AnimeRecommender:
         )
         return self._to_records(sub.head(n))
 
+    def recommend_hybrid(self, genre_score, collab_predictions, exclude_ids=None, n=18, min_scored_by=1000, alpha=0.5):
+        """Gợi ý kết hợp (Hybrid) giữa Content-based (Taste Memory) và Collaborative Filtering (SVD).
+        
+        collab_predictions: list các dict {"mal_id": raw_id, "score": predicted_rating}
+        """
+        if not genre_score:
+            if collab_predictions:
+                exclude_ids = set(exclude_ids or [])
+                collab_dict = {int(p["mal_id"]): p["score"] for p in collab_predictions}
+                sub = self.df[self.df["mal_id"].isin(collab_dict.keys()) & (~self.df["mal_id"].isin(exclude_ids))].copy()
+                sub["collab_score"] = sub["mal_id"].map(collab_dict)
+                sub["_score"] = sub["score"].where(sub["scored_by"].fillna(0) >= min_scored_by)
+                sub = sub.sort_values(by=["collab_score", "_score", "members"], ascending=False, na_position="last")
+                return self._to_records(sub.head(n))
+            return []
+            
+        exclude_ids = set(exclude_ids or [])
+        sub = self.df.copy()
+        
+        # 1. Tính content score (genre match)
+        sub["match"] = sub["genre_list"].apply(
+            lambda gs: sum(genre_score.get(g, 0) for g in gs)
+        )
+        
+        # Lọc các anime có match > 0 và chưa xem
+        sub = sub[(sub["match"] > 0) & (~sub["mal_id"].isin(exclude_ids))]
+        
+        if len(sub) == 0:
+            return []
+            
+        # 2. Lấy collab score nếu có
+        if collab_predictions:
+            collab_dict = {int(p["mal_id"]): p["score"] for p in collab_predictions}
+            sub["collab_score"] = sub["mal_id"].map(lambda x: collab_dict.get(int(x), 5.0))
+            
+            # Normalize match score (0 to 1)
+            max_match = sub["match"].max()
+            min_match = sub["match"].min()
+            if max_match > min_match:
+                sub["match_norm"] = (sub["match"] - min_match) / (max_match - min_match)
+            else:
+                sub["match_norm"] = 1.0
+                
+            # Normalize collab score (0 to 1)
+            max_collab = sub["collab_score"].max()
+            min_collab = sub["collab_score"].min()
+            if max_collab > min_collab:
+                sub["collab_norm"] = (sub["collab_score"] - min_collab) / (max_collab - min_collab)
+            else:
+                sub["collab_norm"] = 1.0
+                
+            # Tính hybrid score
+            sub["hybrid_score"] = alpha * sub["match_norm"] + (1.0 - alpha) * sub["collab_norm"]
+            
+            sub["_score"] = sub["score"].where(sub["scored_by"].fillna(0) >= min_scored_by)
+            sub = sub.sort_values(
+                by=["hybrid_score", "_score", "members"], ascending=False, na_position="last"
+            )
+        else:
+            # Fallback nếu không có collab data
+            sub["_score"] = sub["score"].where(sub["scored_by"].fillna(0) >= min_scored_by)
+            sub = sub.sort_values(
+                by=["match", "_score", "members"], ascending=False, na_position="last"
+            )
+            
+        return self._to_records(sub.head(n))
+
 
 def np_isnan(v):
     try:
         return v is None or (isinstance(v, float) and np.isnan(v))
     except TypeError:
         return False
+

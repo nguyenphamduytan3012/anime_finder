@@ -21,6 +21,8 @@ toward the genres that overlap most across everything you've finished. The UI is
   records it for that user in PostgreSQL. Genres that recur across finished shows rise to the top
   and drive a personalized "For You" ranking. (`genre_score` is computed on the fly from the
   finished list — single source of truth, no redundant table.)
+- **Collaborative Filtering (SVD)** — Matrix Factorization via `scikit-surprise` trained on MAL rating data (16M+ ratings). Provides SVD item-item collaborative recommendations ("👥 他のユーザーも好き") in the detail modal.
+- **Hybrid Recommendation Engine** — blends Content-Based Taste Memory and SVD predictions using a normalized scoring formula ($\alpha = 0.5$) for personalized sidebar recommendations.
 - **Dynamic theming** — 4 themes that switch by genre group: Neutral (home), Action/Fantasy
   (cyberpunk neon), Romance (soft sakura), Horror (dark mystic + vignette). See [DESIGN.md](DESIGN.md).
 
@@ -34,7 +36,7 @@ Filtering + pagination: ![filter](screenshot/filter-pagination-action.png)
 
 ## 🛠 Tech Stack
 
-- **Backend:** Python, Flask, pandas, scikit-learn (TF-IDF + cosine similarity)
+- **Backend:** Python, Flask, pandas, scikit-learn (TF-IDF + cosine similarity), scikit-surprise (SVD matrix factorization), joblib
 - **Auth & DB:** Flask-Login, Flask-SQLAlchemy, PostgreSQL (psycopg2), Werkzeug password hashing
 - **Frontend:** vanilla HTML/CSS/JS (CSS variables for theming, Google Fonts: M PLUS 1p,
   M PLUS Rounded 1c, Hina Mincho)
@@ -43,12 +45,14 @@ Filtering + pagination: ![filter](screenshot/filter-pagination-action.png)
 ## 🧩 Architecture
 
 ```
+train_svd.py         # SVD offline training script (outputs data/svd_model.pkl)
 src/data_loader.py   # load + clean CSV (parse genres by '|', dedup mal_id, drop Hentai)
-src/recommender.py   # TF-IDF + cosine similarity; genre search w/ filter, sort, pagination
+src/recommender.py   # TF-IDF + cosine similarity, hybrid recommendation blending logic
+src/collab_recommender.py # SVD item factors similar items & user predictions logic
 src/database.py      # SQLAlchemy init + DATABASE_URL normalization
 src/models.py        # User, FinishedAnime (1 user -> many finished)
 src/memory.py        # per-user taste memory in DB; genre_score computed on the fly
-app.py               # Flask: serves UI + REST API + Flask-Login auth
+app.py               # Flask: serves UI + REST API + Flask-Login auth + loads COLLAB_REC
 templates/ static/   # frontend (4 dynamic themes + auth UI)
 ```
 
@@ -69,6 +73,16 @@ cp .env.example .env                # set DATABASE_URL + SECRET_KEY
 python app.py                       # auto-creates tables → http://127.0.0.1:5000
 ```
 
+### 👥 Collaborative Filtering Model Setup (Optional)
+
+1. Download the **[Anime Recommendation Database 2020 (Hernan4444)](https://www.kaggle.com/datasets/hernan4444/anime-recommendation-database-2020)** dataset from Kaggle.
+2. Extract the file `rating_complete.csv` (contains actual user ratings, ~300MB) and place it inside the `data/` directory.
+3. Train the SVD model:
+   ```bash
+   python train_svd.py
+   ```
+   *Note: This filters active users (>= 50 ratings), trains the model, and outputs a lightweight parameter file `data/svd_model.pkl` (~3MB). If this model is missing, the web app will gracefully disable collaborative features and use pure Content-Based recommendations.*
+
 ## ☁️ Deploy (Render)
 
 1. Push this repo to GitHub.
@@ -86,6 +100,6 @@ python app.py                       # auto-creates tables → http://127.0.0.1:5
 
 ## 💡 Future improvements
 
-- Collaborative filtering once a `rating.csv` is available (hybrid with the content model).
-- Swap TF-IDF for neural embeddings + a vector index (FAISS) for semantic similarity.
+- Swap TF-IDF and SVD for neural embeddings + a vector index (FAISS) for semantic similarity.
 - Extra filters (theme/demographic); "currently watching" progress tracking.
+- Interactive user ratings in the UI to update user factors in real-time.

@@ -8,6 +8,12 @@ Serve UI + REST API:
 - gợi ý anime dựa trên 'gu' đã ghi nhớ của user đang đăng nhập
 """
 import os
+import sys
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except AttributeError:
+    pass
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
@@ -50,6 +56,12 @@ print("Loading dataset…")
 DF = load_anime()
 REC = AnimeRecommender(DF)
 GENRES = all_genres(DF)
+
+# Khởi tạo Collaborative Filtering (SVD)
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "data", "svd_model.pkl")
+from src.collab_recommender import CollabRecommender
+COLLAB_REC = CollabRecommender(MODEL_PATH, DF["mal_id"])
+
 with app.app_context():
     db.create_all()
 print(f"Ready: {len(DF)} anime, {len(GENRES)} genres.")
@@ -140,6 +152,19 @@ def api_anime_detail(mal_id):
     if item is None:
         return jsonify({"error": "not found"}), 404
     item["similar"] = REC.similar(mal_id, n=12)
+    
+    # Lấy danh sách gợi ý tương đồng từ SVD (Collaborative Filtering)
+    if COLLAB_REC.is_ready:
+        collab_ids = COLLAB_REC.similar_items(mal_id, n=12)
+        collab_items = []
+        for cid in collab_ids:
+            collab_item = REC.get_one(cid)
+            if collab_item:
+                collab_items.append(collab_item)
+        item["collab_similar"] = collab_items
+    else:
+        item["collab_similar"] = []
+        
     return jsonify(item)
 
 
@@ -194,8 +219,17 @@ def api_memory_reset():
 @login_required
 def api_recommend():
     scores = memory.genre_scores(current_user.id, REC.genres_of)
-    finished_ids = [it["mal_id"] for it in memory.finished_list(current_user.id)]
-    recs = REC.recommend_by_genre_scores(scores, exclude_ids=finished_ids, n=18)
+    finished_list = memory.finished_list(current_user.id)
+    finished_ids = [it["mal_id"] for it in finished_list]
+    
+    # Dự đoán Collaborative Filtering nếu user đã xem ít nhất 1 anime và model sẵn sàng
+    collab_predictions = []
+    if COLLAB_REC.is_ready and finished_ids:
+        collab_predictions = COLLAB_REC.predict_for_user_profile(finished_ids, n=100)
+        
+    # Gợi ý Hybrid (kết hợp Taste Memory và SVD)
+    recs = REC.recommend_hybrid(scores, collab_predictions, exclude_ids=finished_ids, n=18)
+    
     return jsonify({
         "top_genres": memory.top_genres(scores),
         "recommendations": recs,

@@ -38,52 +38,49 @@ Các cột quan trọng cho recommender:
 ### `data/manga_dataset.csv` — 24 cột
 Tương tự nhưng đặc thù manga: có `chapters`, `volumes`, `authors`, `serializations` thay cho các cột anime. **Hiện chưa dùng cho web app** — chỉ giữ để mở rộng sau.
 
-### Lưu ý chất lượng dữ liệu (missing values đáng chú ý)
-- `licensors` thiếu ~83%, `season`/`year` thiếu ~78%, `demographics` thiếu ~63%, `aired_to` thiếu ~61%.
-- `score`/`scored_by` thiếu ~34% (10.183 dòng) → khi rank theo score phải `dropna`/`fillna`.
-- `genres` thiếu 6.394 dòng (~21%) → khi lọc theo genre cần `fillna('')` rồi mới `.str.split('|')`.
-- **Có dòng trùng `mal_id`** (vd `mal_id=64012` lặp 2 lần) → cần `drop_duplicates` theo `mal_id` khi cần.
-- Phân tách genre là ký tự **`|`**, KHÔNG phải `, ` như trong guide gốc.
+### Lưu ý chất## 4. Trạng thái hiện tại của code
 
-## 4. Trạng thái hiện tại của code
+- Đã hoàn thành toàn bộ web app (Flask + HTML/JS/CSS).
+- Đã thêm offline training SVD (`train_svd.py`) để học latent factors từ 16M+ ratings của MAL dataset.
+- Đã thêm module gợi ý Collaborative Filtering (`src/collab_recommender.py`) sử dụng pseudo-user embedding cho cold-start.
+- Đã thêm phương thức gợi ý Hybrid (`recommend_hybrid`) kết hợp Taste Memory và SVD với trọng số $\alpha = 0.5$.
+- Giao diện đã cập nhật để hiển thị section "👥 他のユーザーも好き" trong detail modal và gợi ý hybrid ở sidebar.
 
-- **[main.py](main.py)** — script nháp, chỉ `read_csv` + `head()`.
-- **[eda.ipynb](eda.ipynb)** — notebook EDA cơ bản: `shape`, `columns`, `isnull().sum()`. Chưa có chart.
-- Chưa có app web, chưa có module recommender, chưa có `requirements.txt`.
+## 5. Kiến trúc của code
 
-## 5. Kiến trúc đề xuất (khi build)
-
-Stack đã chốt: **Flask (backend Python) + HTML/CSS/JS (frontend)** — backend giữ recommender + memory bằng pandas/sklearn, frontend toàn quyền làm dynamic theming đúng [DESIGN.md] (Streamlit không đáp ứng được neon/vignette/custom font).
+Stack đã chốt: **Flask (backend Python) + HTML/CSS/JS (frontend)** — backend giữ recommender + memory bằng pandas/sklearn/surprise, frontend toàn quyền làm dynamic theming đúng [DESIGN.md] (Streamlit không đáp ứng được neon/vignette/custom font).
 
 ```
 Favorite_anime/
-├── data/                  # CSV gốc (giữ nguyên)
-├── eda.ipynb              # phân tích, chart cho README
+├── data/                  # CSV gốc (anime_dataset.csv) + SVD model (svd_model.pkl)
+├── eda.ipynb              # phân tích, chart
+├── train_svd.py           # offline training SVD model từ rating_complete.csv
 ├── src/
 │   ├── data_loader.py     # load + clean (parse genres bằng '|', dedup mal_id, bỏ Hentai)
-│   ├── recommender.py     # content-based: TF-IDF(genres+themes+type) + cosine similarity; search() có filter/sort/paginate
-│   ├── database.py        # khởi tạo SQLAlchemy (db) + normalize_db_url (postgres:// -> postgresql+psycopg2://)
+│   ├── recommender.py     # content-based: TF-IDF; hybrid: blending content & collab
+│   ├── collab_recommender.py # collaborative: SVD item-factors cosine similarity & profile prediction
+│   ├── database.py        # khởi tạo SQLAlchemy (db) + normalize_db_url
 │   ├── models.py          # bảng SQLAlchemy: User, FinishedAnime
 │   └── memory.py          # ghi nhớ genre yêu thích THEO USER trong DB (genre_score tính on-the-fly)
 ├── templates/index.html   # giao diện chính + modal auth
 ├── static/css/style.css   # 4 theme (CSS variables + class theme-*) + auth UI
-├── static/js/app.js       # gọi API, đổi theme, render anime, auth (login/register/logout)
-├── app.py                 # Flask: UI + REST API + Flask-Login
+├── static/js/app.js       # gọi API, đổi theme, render anime, auth, render modal details & collab recommendations
+├── app.py                 # Flask: UI + REST API + Flask-Login + loads COLLAB_REC
 ├── .env / .env.example    # DATABASE_URL, SECRET_KEY (.env KHÔNG commit)
 ├── render.yaml / Procfile # deploy (gunicorn)
 └── requirements.txt
 ```
 
-**REST API:** `/api/genres`, `/api/anime` (filter+paginate), `/api/anime/<id>` (detail+similar), `/api/register`, `/api/login`, `/api/logout`, `/api/me`, `/api/finish`, `/api/memory`, `/api/memory/reset`, `/api/recommend`. Các route memory/finish/recommend yêu cầu **đăng nhập** (`@login_required` → trả 401 JSON `{auth_required:true}` nếu chưa login).
+**REST API:** `/api/genres`, `/api/anime` (filter+paginate), `/api/anime/<id>` (detail+similar+collab_similar), `/api/register`, `/api/login`, `/api/logout`, `/api/me`, `/api/finish`, `/api/memory`, `/api/memory/reset`, `/api/recommend`. Các route memory/finish/recommend yêu cầu **đăng nhập** (`@login_required` → trả 401 JSON `{auth_required:true}` nếu chưa login).
 
 **Quyết định đã chốt với chủ dự án:**
 - **Xác định "đã xem hết": theo số tập.** Nếu `số_tập_đã_xem >= episodes` (và `episodes` không NaN) → *finished* → cộng genres vào memory. Bộ `episodes = NaN`/đang phát sóng → coi như user tự xác nhận.
 - **Quản lý người dùng bằng PostgreSQL + auth thật** (đã nâng cấp từ JSON). Mật khẩu **băm** (Werkzeug), session bằng **Flask-Login**. Hai bảng:
-  - `users(id, username UNIQUE, password_hash, created_at)`
-  - `finished_anime(id, user_id FK, mal_id, title, finished_at, UNIQUE(user_id, mal_id))`
-  - **`genre_score` KHÔNG có bảng riêng** — tính on-the-fly từ `finished_anime` + genres trong dataset (single source of truth). Anime catalog ở CSV/pandas, user-state ở DB, nối bằng `mal_id`.
+   - `users(id, username UNIQUE, password_hash, created_at)`
+   - `finished_anime(id, user_id FK, mal_id, title, finished_at, UNIQUE(user_id, mal_id))`
+   - **`genre_score` KHÔNG có bảng riêng** — tính on-the-fly từ `finished_anime` + genres trong dataset (single source of truth). Anime catalog ở CSV/pandas, user-state ở DB, nối bằng `mal_id`.
 - **DB local: Postgres qua Docker** (`docker run ... postgres:16`, container tên `anime-pg`, db `animedb`, user/pass `anime`). `DATABASE_URL` đọc từ `.env`. Khi deploy Render → tạo Postgres, set `DATABASE_URL` (app tự chuẩn hoá scheme `postgres://`).
-- File `user_memory.json` cũ **không còn dùng** (đã chuyển sang DB).
+- File `user_memory.json` cũ không còn dùng (đã chuyển sang DB).
 
 ## 6. Môi trường & lệnh
 

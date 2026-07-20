@@ -1,0 +1,4 @@
+# Thư viện CHỈ dùng để huấn luyện offline trên máy local (không cần khi deploy).
+# Cài thêm khi muốn chạy: python train_svd.py
+-r requirements.txt
+scikit-surprise>=1.1.3

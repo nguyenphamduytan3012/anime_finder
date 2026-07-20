@@ -1,5 +1,6 @@
 /* ===== Dynamic Theming — xem DESIGN.md =====
-   Đổi class trên <body>: theme-neutral | theme-action | theme-romance | theme-horror */
+   Đổi class trên <body>: theme-neutral | theme-action | theme-romance | theme-horror
+   + toggle độc lập .light-mode (chế độ nền trắng, có thể kết hợp với bất kỳ theme nào) */
 
 :root {
   --bg: #121417;
@@ -9,6 +10,7 @@
   --text: #ffffff;
   --text-muted: #9ca3af;
   --glow: rgba(59, 130, 246, 0.35);
+  --card-border: rgba(255, 255, 255, 0.04);
   --font-head: "M PLUS 1p", sans-serif;
   --font-body: "M PLUS Rounded 1c", sans-serif;
   --radius: 14px;
@@ -22,6 +24,7 @@
   --primary: #3b82f6; --secondary: #60a5fa;
   --text: #ffffff; --text-muted: #9ca3af;
   --glow: rgba(59, 130, 246, 0.35);
+  --card-border: rgba(255, 255, 255, 0.04);
   --font-head: "M PLUS 1p", sans-serif; --font-body: "M PLUS Rounded 1c", sans-serif;
 }
 /* 2. Action / Fantasy — Cyberpunk Neon */
@@ -30,6 +33,7 @@
   --primary: #ff0055; --secondary: #00f2ff;
   --text: #ffffff; --text-muted: #b69ad6;
   --glow: rgba(255, 0, 85, 0.5);
+  --card-border: rgba(255, 255, 255, 0.04);
   --font-head: "M PLUS 1p", sans-serif; --font-body: "M PLUS Rounded 1c", sans-serif;
 }
 /* 3. Romance / Học đường — Vibrant Soft */
@@ -38,6 +42,7 @@
   --primary: #ff85a2; --secondary: #70d6ff;
   --text: #4a4a4a; --text-muted: #9a8a90;
   --glow: rgba(255, 133, 162, 0.45);
+  --card-border: rgba(0, 0, 0, 0.06);
   --font-head: "M PLUS Rounded 1c", sans-serif; --font-body: "M PLUS Rounded 1c", sans-serif;
 }
 /* 4. Horror / Bí ẩn — Dark Mystic */
@@ -46,8 +51,19 @@
   --primary: #8b0000; --secondary: #4b0082;
   --text: #e7e0e0; --text-muted: #8a7070;
   --glow: rgba(139, 0, 0, 0.55);
+  --card-border: rgba(255, 255, 255, 0.06);
   --font-head: "Hina Mincho", serif; --font-body: "M PLUS Rounded 1c", sans-serif;
 }
+/* 5. Light Mode — nền trắng, toggle độc lập với genre (không thay bg gốc, chỉ ghi đè) */
+.light-mode {
+  --bg: #ffffff; --surface: #f7f8fa;
+  --primary: #3b82f6; --secondary: #2563eb;
+  --text: #1f2937; --text-muted: #6b7280;
+  --glow: rgba(59, 130, 246, 0.18);
+  --card-border: rgba(15, 23, 42, 0.08);
+  --font-head: "M PLUS 1p", sans-serif; --font-body: "M PLUS Rounded 1c", sans-serif;
+}
+.light-mode.theme-horror .vignette { opacity: 0; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -136,8 +152,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 20px 60px; }
 
 .card {
   background: var(--surface); border-radius: var(--radius); overflow: hidden;
-  cursor: pointer; transition: transform .2s, box-shadow .2s; position: relative;
-  border: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer; transition: transform .2s, box-shadow .2s, border-color .3s; position: relative;
+  border: 1px solid var(--card-border);
 }
 .card:hover { transform: translateY(-5px); box-shadow: 0 10px 26px var(--glow); }
 .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: #000; }
@@ -211,6 +227,11 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 20px 60px; }
 
 /* ===== Auth ===== */
 .auth-bar { position: fixed; top: 14px; right: 18px; z-index: 40; display: flex; gap: 8px; align-items: center; }
+.theme-toggle { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--card-border);
+  background: var(--surface); color: var(--text); cursor: pointer; font-size: .95rem; line-height: 1;
+  transition: all .2s; }
+.theme-toggle:hover { border-color: var(--primary); }
+.theme-toggle-fixed { position: fixed; top: 14px; left: 18px; z-index: 40; }
 .auth-hello { color: var(--text); font-size: .85rem; font-family: var(--font-body); background: var(--surface);
   padding: 6px 12px; border-radius: 8px; }
 .auth-btn { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--primary); background: var(--surface);

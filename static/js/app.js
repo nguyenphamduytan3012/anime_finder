@@ -26,7 +26,19 @@ function themeForGenre(genre) {
   for (const t of THEME_PRIORITY) if (THEME_MAP[t].includes(genre)) return t;
   return "neutral";
 }
-const applyTheme = (theme) => (document.body.className = "theme-" + theme);
+
+// ===== ライトモード（白背景トグル） — genreテーマとは独立に重ねて適用 =====
+let lightMode = localStorage.getItem("lightMode") === "1";
+const applyTheme = (theme) => {
+  document.body.className = "theme-" + theme + (lightMode ? " light-mode" : "");
+};
+function toggleLightMode() {
+  lightMode = !lightMode;
+  localStorage.setItem("lightMode", lightMode ? "1" : "0");
+  document.body.classList.toggle("light-mode", lightMode);
+  const btn = $("#themeToggle");
+  if (btn) btn.textContent = lightMode ? "☀️" : "🌙";
+}
 
 // ===== Helpers =====
 const $ = (sel) => document.querySelector(sel);
@@ -214,7 +226,11 @@ async function openDetail(malId) {
     </div>
 
     <div class="similar-title">🎯 似ているアニメ</div>
-    <div class="grid">${a.similar.map(cardHTML).join("")}</div>`;
+    <div class="grid">${a.similar.map(cardHTML).join("")}</div>
+    ${a.collab_similar && a.collab_similar.length > 0 ? `
+      <div class="similar-title" style="margin-top: 30px">👥 他のユーザーも好き</div>
+      <div class="grid">${a.collab_similar.map(cardHTML).join("")}</div>
+    ` : ""}`;
 
   $("#finishBtn").onclick = () => finishAnime(a.mal_id);
   $("#modal").classList.remove("hidden");
@@ -278,6 +294,14 @@ async function loadRecommendations() {
 
 // ===== Init =====
 async function init() {
+  // 初期状態: 保存されたライトモードを反映
+  if (lightMode) document.body.classList.add("light-mode");
+  const themeToggleBtn = $("#themeToggle");
+  if (themeToggleBtn) {
+    themeToggleBtn.textContent = lightMode ? "☀️" : "🌙";
+    themeToggleBtn.addEventListener("click", toggleLightMode);
+  }
+
   const genres = await api("/api/genres");
   $("#genreChips").innerHTML = genres
     .map((g) => `<div class="chip" data-genre="${g.name}" data-jp="${jpGenre(g.name)}">${jpGenre(g.name)}<span class="count">${g.count.toLocaleString()}</span></div>`)
