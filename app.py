@@ -146,6 +146,42 @@ def api_anime():
     ))
 
 
+@app.route("/api/search")
+def api_search():
+    """Tìm anime theo TÊN (tiếng Nhật + tiếng Anh/romaji).
+
+    Query params: q (bắt buộc), page, page_size, sort, type, status, year
+    """
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "missing query"}), 400
+
+    def _int(name, default):
+        try:
+            return int(request.args.get(name, default))
+        except (ValueError, TypeError):
+            return default
+
+    return jsonify(REC.search_by_title(
+        query,
+        page=_int("page", 1),
+        page_size=_int("page_size", 30),
+        sort=request.args.get("sort", "relevance"),
+        type_filter=request.args.get("type", ""),
+        status=request.args.get("status", ""),
+        year=request.args.get("year", ""),
+    ))
+
+
+@app.route("/api/suggest")
+def api_suggest():
+    """Gợi ý tên anime cho autocomplete (tối đa 8 kết quả)."""
+    query = request.args.get("q", "").strip()
+    if len(query) < 1:
+        return jsonify([])
+    return jsonify(REC.suggest_titles(query, n=8))
+
+
 @app.route("/api/anime/<int:mal_id>")
 def api_anime_detail(mal_id):
     item = REC.get_one(mal_id)

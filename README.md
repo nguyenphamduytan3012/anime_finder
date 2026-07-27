@@ -11,6 +11,10 @@ toward the genres that overlap most across everything you've finished. The UI is
 
 - **Browse by genre** — pick any of 20 genres; results are paginated across *all* matching titles
   (e.g. Comedy → 7,800+ titles, 260+ pages), not a fixed top-N.
+- **Search by title (JP + EN)** — the search bar also matches anime titles in Japanese, English
+  and romaji. Queries are normalized (NFKC, katakana→hiragana, punctuation/space stripped), so
+  `進撃の巨人`, `Attack on Titan`, `shingeki` and `ｼﾝｹﾞｷ` all resolve to the same series.
+  Includes live autocomplete (`/api/suggest`) and relevance ranking (exact > prefix > substring).
 - **Filtering & sorting** — by type (TV/Movie/OVA/…), status (airing/finished/upcoming), year,
   and sort (score / popularity / members / favorites / newest / title).
 - **Content-based similarity** — TF-IDF over genres + themes + type, cosine similarity to find
@@ -57,6 +61,7 @@ templates/ static/   # frontend (4 dynamic themes + auth UI)
 ```
 
 REST API: `/api/genres`, `/api/anime?genre=&page=&sort=&type=&status=&year=`,
+`/api/search?q=&page=&sort=` (title search), `/api/suggest?q=` (autocomplete),
 `/api/anime/<id>` (detail + similar), `/api/register`, `/api/login`, `/api/logout`, `/api/me`,
 `/api/finish`, `/api/memory`, `/api/recommend` (memory/finish/recommend require auth).
 

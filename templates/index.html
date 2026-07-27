@@ -21,9 +21,19 @@
   </header>
 
   <main>
-    <!-- ジャンル検索 -->
+    <!-- 検索（作品名 ＋ ジャンル） -->
     <section class="search-bar">
-      <input id="genreSearch" type="text" placeholder="ジャンルを入力（例：アクション、恋愛、ホラー）…" autocomplete="off" />
+      <div class="search-row">
+        <div class="search-input-wrap">
+          <input id="genreSearch" type="text"
+                 placeholder="作品名やジャンルで検索（例：進撃の巨人 / Attack on Titan / アクション）…"
+                 autocomplete="off" />
+          <button id="searchClear" class="search-clear hidden" type="button" aria-label="クリア">✕</button>
+          <div id="suggestBox" class="suggest-box hidden"></div>
+        </div>
+        <button id="searchBtn" class="btn-primary search-btn" type="button">作品名で検索</button>
+      </div>
+      <p class="search-help">日本語・英語どちらでも検索できます。ジャンル名を入れると下のタグが絞り込まれます。</p>
       <div id="genreChips" class="chips"></div>
     </section>
 
@@ -36,7 +46,8 @@
         <div id="filterBar" class="filter-bar hidden">
           <label>並び替え
             <select id="fSort">
-              <option value="score">スコア順</option>
+              <option value="relevance">関連度順（検索時）</option>
+              <option value="score" selected>スコア順</option>
               <option value="popularity">人気順</option>
               <option value="members">メンバー数順</option>
               <option value="favorites">お気に入り順</option>

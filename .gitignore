@@ -17,6 +17,11 @@ user_memory.json
 *.db
 *.sqlite3
 
+# Dataset nặng không dùng cho web app (đã gỡ khỏi repo — xem CLAUDE.md)
+data/manga_dataset.csv
+# Model SVD sinh ra khi chạy train_svd.py (không commit, xem README)
+data/svd_model.pkl
+
 # Logs / OS
 *.log
 screenshot/server.log

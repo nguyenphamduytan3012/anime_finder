@@ -1,0 +1,25 @@
+# Chuẩn hoá line-ending: repo luôn lưu LF, checkout theo hệ điều hành.
+# Tránh tình trạng file hiện "modified" chỉ vì CRLF (Windows) vs LF.
+* text=auto
+
+# Dữ liệu dạng text — luôn LF
+*.csv   text eol=lf
+*.py    text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+
+# Nhị phân — không đụng vào
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.pkl   binary
+*.db    binary
+
+# Notebook: coi là text nhưng không diff cho đỡ rối
+*.ipynb text eol=lf -diff

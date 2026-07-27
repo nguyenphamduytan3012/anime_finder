@@ -72,7 +72,69 @@ function cardHTML(a) {
 }
 
 // ===== State =====
-const state = { genre: null, page: 1, sort: "score", type: "", status: "", year: "" };
+// mode: "genre" = ジャンル閲覧 / "title" = 作品名検索
+const state = { mode: "genre", genre: null, query: "", page: 1, sort: "score", type: "", status: "", year: "" };
+
+// ===== サジェスト（作品名オートコンプリート）=====
+let suggestItems = [];
+let suggestIndex = -1;
+let suggestTimer = null;
+let suggestSeq = 0;
+
+function hideSuggest() {
+  const box = $("#suggestBox");
+  if (box) box.classList.add("hidden");
+  suggestItems = [];
+  suggestIndex = -1;
+}
+
+function renderSuggest(items, query) {
+  const box = $("#suggestBox");
+  if (!box) return;
+  suggestItems = items;
+  suggestIndex = -1;
+  if (!items.length) {
+    box.innerHTML = `<div class="suggest-empty">「${escapeHtml(query)}」に一致する作品がありません。</div>`;
+    box.classList.remove("hidden");
+    return;
+  }
+  box.innerHTML =
+    items.map((a, i) => `
+      <div class="suggest-item" data-idx="${i}" data-id="${a.mal_id}">
+        <img src="${a.image_url || PLACEHOLDER}" onerror="this.src='${PLACEHOLDER}'" alt="">
+        <div class="s-main">
+          <div class="s-title">${escapeHtml(a.title)}</div>
+          <div class="s-jp">${escapeHtml(a.japanese_title || "")} ・ ${jpType(a.type)}</div>
+        </div>
+        <div class="s-score">${a.score ? "★ " + a.score : ""}</div>
+      </div>`).join("") +
+    `<div class="suggest-more" data-more="1">「${escapeHtml(query)}」の検索結果をすべて見る</div>`;
+  box.classList.remove("hidden");
+}
+
+function highlightSuggest(delta) {
+  const box = $("#suggestBox");
+  if (!box || box.classList.contains("hidden") || !suggestItems.length) return;
+  suggestIndex = (suggestIndex + delta + suggestItems.length) % suggestItems.length;
+  box.querySelectorAll(".suggest-item").forEach((el, i) =>
+    el.classList.toggle("active", i === suggestIndex));
+}
+
+function requestSuggest(query) {
+  clearTimeout(suggestTimer);
+  const q = query.trim();
+  if (q.length < 1) return hideSuggest();
+  suggestTimer = setTimeout(async () => {
+    const seq = ++suggestSeq;
+    try {
+      const items = await api("/api/suggest?q=" + encodeURIComponent(q));
+      if (seq !== suggestSeq) return;   // 古いリクエストの結果は捨てる
+      renderSuggest(items, q);
+    } catch (e) {
+      hideSuggest();
+    }
+  }, 220);
+}
 
 // ===== Auth =====
 let CURRENT_USER = null;
@@ -149,8 +211,11 @@ function renderLoginPrompt() {
 }
 
 async function showGenre(genre) {
+  state.mode = "genre";
   state.genre = genre;
+  state.query = "";
   state.page = 1;
+  if (state.sort === "relevance") state.sort = "score";
   history.replaceState(null, "", "#genre=" + encodeURIComponent(genre));
   applyTheme(themeForGenre(genre));
   document.querySelectorAll(".chip").forEach((c) =>
@@ -158,6 +223,23 @@ async function showGenre(genre) {
   );
   $("#resultTitle").textContent = `ジャンル：${jpGenre(genre)}`;
   $("#filterBar").classList.remove("hidden");
+  hideSuggest();
+  await fetchAnime();
+}
+
+// ===== 作品名で検索（日本語・英語対応）=====
+async function showTitleSearch(query) {
+  const q = (query ?? "").trim();
+  if (!q) return;
+  state.mode = "title";
+  state.query = q;
+  state.page = 1;
+  history.replaceState(null, "", "#q=" + encodeURIComponent(q));
+  // 作品名検索はジャンルに紐づかないのでニュートラルに戻す
+  applyTheme("neutral");
+  document.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+  $("#filterBar").classList.remove("hidden");
+  hideSuggest();
   await fetchAnime();
 }
 
@@ -165,13 +247,39 @@ async function fetchAnime() {
   const grid = $("#animeGrid");
   grid.innerHTML = `<p class="hint">読み込み中…</p>`;
   $("#pagination").innerHTML = "";
-  const q = new URLSearchParams({
-    genre: state.genre, page: state.page, sort: state.sort,
-    type: state.type, status: state.status, year: state.year,
-  });
-  const data = await api(`/api/anime?${q}`);
+
+  let data, url;
+  if (state.mode === "title") {
+    const p = new URLSearchParams({
+      q: state.query, page: state.page, sort: state.sort,
+      type: state.type, status: state.status, year: state.year,
+    });
+    url = `/api/search?${p}`;
+  } else {
+    if (!state.genre) return;
+    const p = new URLSearchParams({
+      genre: state.genre, page: state.page, sort: state.sort,
+      type: state.type, status: state.status, year: state.year,
+    });
+    url = `/api/anime?${p}`;
+  }
+
+  try {
+    data = await api(url);
+  } catch (e) {
+    grid.innerHTML = `<p class="hint">読み込みに失敗しました。しばらくしてからお試しください。</p>`;
+    return;
+  }
+
+  if (state.mode === "title") {
+    $("#resultTitle").textContent =
+      `検索：「${state.query}」${data.total ? `（${data.total.toLocaleString()}件）` : ""}`;
+  }
+
   if (!data.items || !data.items.length) {
-    grid.innerHTML = `<p class="hint">該当するアニメが見つかりません。</p>`;
+    grid.innerHTML = state.mode === "title"
+      ? `<p class="hint">「${escapeHtml(state.query)}」に一致する作品が見つかりません。日本語・英語どちらでもお試しください。</p>`
+      : `<p class="hint">該当するアニメが見つかりません。</p>`;
     return;
   }
   grid.innerHTML = data.items.map(cardHTML).join("");
@@ -315,19 +423,70 @@ async function init() {
     yearSel.appendChild(o);
   }
 
-  // tìm kiếm lọc chip (khớp cả tên Nhật lẫn tên Anh)
-  $("#genreSearch").addEventListener("input", (e) => {
-    const q = e.target.value.toLowerCase();
+  // ---- 検索ボックス：ジャンル絞り込み ＋ 作品名サジェスト ----
+  const searchInput = $("#genreSearch");
+  searchInput.addEventListener("input", (e) => {
+    const raw = e.target.value;
+    const q = raw.toLowerCase();
+    // 下のジャンルタグを絞り込む（従来動作）
     document.querySelectorAll(".chip").forEach((c) => {
-      const hit = c.dataset.genre.toLowerCase().includes(q) || c.dataset.jp.includes(e.target.value);
+      const hit = c.dataset.genre.toLowerCase().includes(q) || c.dataset.jp.includes(raw);
       c.style.display = hit ? "" : "none";
     });
+    $("#searchClear").classList.toggle("hidden", !raw);
+    // 作品名のサジェストを出す
+    requestSuggest(raw);
   });
-  $("#genreSearch").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      const first = [...document.querySelectorAll(".chip")].find((c) => c.style.display !== "none");
-      if (first) showGenre(first.dataset.genre);
+
+  searchInput.addEventListener("keydown", (e) => {
+    const box = $("#suggestBox");
+    const open = box && !box.classList.contains("hidden") && suggestItems.length;
+    if (e.key === "ArrowDown" && open) { e.preventDefault(); return highlightSuggest(1); }
+    if (e.key === "ArrowUp" && open) { e.preventDefault(); return highlightSuggest(-1); }
+    if (e.key === "Escape") return hideSuggest();
+    if (e.key !== "Enter") return;
+
+    // サジェストを選択中ならその作品を開く
+    if (open && suggestIndex >= 0) {
+      e.preventDefault();
+      const picked = suggestItems[suggestIndex];
+      hideSuggest();
+      return openDetail(picked.mal_id);
     }
+    // ジャンル名と完全に一致すればジャンル閲覧、それ以外は作品名検索
+    const raw = searchInput.value.trim();
+    if (!raw) return;
+    const chips = [...document.querySelectorAll(".chip")];
+    const exact = chips.find((c) =>
+      c.dataset.genre.toLowerCase() === raw.toLowerCase() || c.dataset.jp === raw);
+    if (exact) return showGenre(exact.dataset.genre);
+    showTitleSearch(raw);
+  });
+
+  searchInput.addEventListener("focus", () => {
+    if (searchInput.value.trim()) requestSuggest(searchInput.value);
+  });
+
+  $("#searchBtn").addEventListener("click", () => showTitleSearch(searchInput.value));
+
+  $("#searchClear").addEventListener("click", () => {
+    searchInput.value = "";
+    $("#searchClear").classList.add("hidden");
+    document.querySelectorAll(".chip").forEach((c) => { c.style.display = ""; });
+    hideSuggest();
+    searchInput.focus();
+  });
+
+  // サジェストのクリック
+  $("#suggestBox").addEventListener("click", (e) => {
+    if (e.target.closest(".suggest-more")) return showTitleSearch(searchInput.value);
+    const item = e.target.closest(".suggest-item");
+    if (item) { hideSuggest(); openDetail(item.dataset.id); }
+  });
+
+  // 外側クリックでサジェストを閉じる
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".search-input-wrap")) hideSuggest();
   });
 
   // bộ lọc -> tải lại từ trang 1
@@ -338,7 +497,7 @@ async function init() {
       state.status = $("#fStatus").value;
       state.year = $("#fYear").value;
       state.page = 1;
-      if (state.genre) fetchAnime();
+      if (state.mode === "title" ? state.query : state.genre) fetchAnime();
     });
   });
 
@@ -389,7 +548,15 @@ async function init() {
   await refreshUserData();
 
   const m = location.hash.match(/genre=([^&]+)/);
-  if (m) showGenre(decodeURIComponent(m[1]));
+  const qm = location.hash.match(/[#&]q=([^&]+)/);
+  if (m) {
+    showGenre(decodeURIComponent(m[1]));
+  } else if (qm) {
+    const q = decodeURIComponent(qm[1]);
+    searchInput.value = q;
+    $("#searchClear").classList.remove("hidden");
+    showTitleSearch(q);
+  }
   const a = location.hash.match(/auth=(login|register)/);
   if (a && !CURRENT_USER) openAuth(a[1]);
 }

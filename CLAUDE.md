@@ -35,8 +35,10 @@ Các cột quan trọng cho recommender:
 - `score`, `scored_by`, `rank`, `popularity`, `members`, `favorites` — dùng để xếp hạng / tie-break.
 - `season`, `year`, `studios`, `producers`, `licensors`
 
-### `data/manga_dataset.csv` — 24 cột
-Tương tự nhưng đặc thù manga: có `chapters`, `volumes`, `authors`, `serializations` thay cho các cột anime. **Hiện chưa dùng cho web app** — chỉ giữ để mở rộng sau.
+### `data/manga_dataset.csv` — ĐÃ GỠ KHỎI REPO
+Trước đây repo có kèm dataset manga (24 cột: `chapters`, `volumes`, `authors`, `serializations`…) nhưng web app **không dùng đến**, trong khi file nặng ~42MB làm chậm việc clone. File đã được gỡ khỏi repo và khỏi lịch sử git.
+
+Nếu sau này mở rộng sang manga: tải lại dataset từ nguồn MAL và đặt vào `data/manga_dataset.csv` (đường dẫn này đã nằm trong `.gitignore` để không vô tình commit lại file nặng).
 
 ### Lưu ý chất## 4. Trạng thái hiện tại của code
 

@@ -7,6 +7,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
 
+from src.data_loader import normalize_search_text
+
 
 class AnimeRecommender:
     def __init__(self, df):
@@ -19,7 +21,7 @@ class AnimeRecommender:
     # ---------- helpers ----------
     def _to_records(self, sub):
         cols = [
-            "mal_id", "display_title", "title", "type", "episodes",
+            "mal_id", "display_title", "title", "title_japanese", "type", "episodes",
             "score", "members", "genre_list", "image_url", "synopsis",
         ]
         recs = []
@@ -28,6 +30,7 @@ class AnimeRecommender:
                 "mal_id": int(r["mal_id"]),
                 "title": r["display_title"],
                 "original_title": r["title"],
+                "japanese_title": r["title_japanese"] if isinstance(r["title_japanese"], str) else "",
                 "type": r["type"] or "",
                 "episodes": None if np_isnan(r["episodes"]) else int(r["episodes"]),
                 "score": None if np_isnan(r["score"]) else round(float(r["score"]), 2),
@@ -79,6 +82,93 @@ class AnimeRecommender:
             "page_size": page_size,
             "total_pages": total_pages,
         }
+
+    def search_by_title(self, query, page=1, page_size=30, sort="relevance",
+                        type_filter="", status="", year="", min_scored_by=50):
+        """Tìm anime theo TÊN — khớp cả tiếng Nhật lẫn tiếng Anh/romaji.
+
+        Cách khớp: chuẩn hoá query giống lúc build index (NFKC + katakana→hiragana
+        + bỏ dấu câu/khoảng trắng), rồi substring match trên search_all.
+        Vì vậy 「進撃の巨人」/「しんげき」/"Attack on Titan"/"shingeki" đều ra kết quả.
+
+        Xếp hạng (sort='relevance'): khớp chính xác > khớp từ đầu > khớp giữa chuỗi,
+        tie-break bằng độ phổ biến (members) và điểm số.
+        """
+        q = normalize_search_text(query)
+        if not q:
+            return {"items": [], "total": 0, "page": 1, "page_size": page_size,
+                    "total_pages": 1, "query": query}
+
+        sub = self.df[self.df["search_all"].str.contains(q, regex=False, na=False)].copy()
+
+        if type_filter:
+            sub = sub[sub["type"] == type_filter]
+        if status and status in self.STATUS_MAP:
+            sub = sub[sub["status"] == self.STATUS_MAP[status]]
+        if year:
+            try:
+                sub = sub[sub["year"] == int(year)]
+            except (ValueError, TypeError):
+                pass
+
+        if sort == "relevance" and len(sub):
+            name_cols = ["search_romaji", "search_english", "search_japanese"]
+
+            def match_rank(row):
+                best = 0
+                for c in name_cols:
+                    name = row[c]
+                    if not name:
+                        continue
+                    if name == q:
+                        best = max(best, 3)      # trùng khít cả tên
+                    elif name.startswith(q):
+                        best = max(best, 2)      # khớp từ đầu tên
+                    elif q in name:
+                        best = max(best, 1)      # khớp ở giữa
+                return best
+
+            sub["_rank"] = sub[name_cols].apply(match_rank, axis=1)
+            # tên càng ngắn so với query -> càng sát ý người dùng
+            sub["_len"] = sub["search_romaji"].str.len()
+            sub["_s"] = sub["score"].where(sub["scored_by"].fillna(0) >= min_scored_by)
+            sub = sub.sort_values(
+                by=["_rank", "members", "_s", "_len"],
+                ascending=[False, False, False, True],
+                na_position="last",
+            )
+        else:
+            sub = self._sort(sub, sort, min_scored_by)
+
+        total = len(sub)
+        page_size = max(1, int(page_size))
+        page = max(1, int(page))
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, total_pages)
+        start = (page - 1) * page_size
+        return {
+            "items": self._to_records(sub.iloc[start:start + page_size]),
+            "total": int(total),
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+            "query": query,
+        }
+
+    def suggest_titles(self, query, n=8):
+        """Gợi ý nhanh cho autocomplete: trả về vài tên khớp nhất."""
+        res = self.search_by_title(query, page=1, page_size=n, sort="relevance")
+        return [
+            {
+                "mal_id": it["mal_id"],
+                "title": it["title"],
+                "japanese_title": it.get("japanese_title", ""),
+                "type": it["type"],
+                "score": it["score"],
+                "image_url": it["image_url"],
+            }
+            for it in res["items"]
+        ]
 
     def _sort(self, sub, sort, min_scored_by):
         if sort == "score":
